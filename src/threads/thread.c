@@ -346,7 +346,7 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
-  if(new_priority < list_entry(list_begin(&ready_list), struct thread, elem)->priority)
+  if(new_priority <= list_entry(list_begin(&ready_list), struct thread, elem)->priority)
 	thread_yield();
 }
 
