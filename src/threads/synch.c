@@ -32,6 +32,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
+bool cont_priority(const struct list_elem* e1, const struct list_elem* e2, void* aux UNUSED);
+
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
    manipulating it:
@@ -68,7 +70,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      list_insert_ordered (&sema->waiters, &thread_current ()->elem, pri_more, NULL);
       thread_block ();
     }
   sema->value--;
@@ -109,14 +111,22 @@ void
 sema_up (struct semaphore *sema) 
 {
   enum intr_level old_level;
+  struct thread* t = NULL;
 
   ASSERT (sema != NULL);
 
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)) 
-    thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+  {
+	  t = list_entry (list_pop_front (&sema->waiters),
+                                struct thread, elem);
+	  thread_unblock (t);
+  }
   sema->value++;
+  
+  if(t != NULL && thread_current()->priority <  t->priority)
+		thread_yield();
+  
   intr_set_level (old_level);
 }
 
@@ -251,6 +261,7 @@ struct semaphore_elem
   {
     struct list_elem elem;              /* List element. */
     struct semaphore semaphore;         /* This semaphore. */
+    int sema_priority;
   };
 
 /* Initializes condition variable COND.  A condition variable
@@ -295,7 +306,8 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
-  list_push_back (&cond->waiters, &waiter.elem);
+  waiter.sema_priority = thread_current()->priority;
+  list_insert_ordered(&cond->waiters, &waiter.elem, cont_priority, NULL);
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
@@ -335,4 +347,12 @@ cond_broadcast (struct condition *cond, struct lock *lock)
 
   while (!list_empty (&cond->waiters))
     cond_signal (cond, lock);
+}
+
+bool cont_priority(const struct list_elem* e1, const struct list_elem* e2, void* aux UNUSED)
+{
+	struct semaphore_elem *l, *r;
+	l = list_entry(e1, struct semaphore_elem, elem);
+	r = list_entry(e2, struct semaphore_elem, elem);
+	return (l->sema_priority > r->sema_priority);
 }
